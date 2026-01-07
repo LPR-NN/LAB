@@ -1,4 +1,4 @@
-# AI Committee Member (AFK)
+# AI Committee Member
 
 AI-система для принятия обоснованных решений в политических организациях на базе funcai.
 
