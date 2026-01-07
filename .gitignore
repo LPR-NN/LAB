@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+docs/
+data/
+requests/
+results/
+audit_logs/
+.DS_Store
+
+todo.txt
+.env
+assets/
+public/
+archive/
+raw/

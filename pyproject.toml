@@ -1,0 +1,37 @@
+[project]
+name = "afk-ai-fk"
+version = "0.1.0"
+description = "AI Committee Member - Decision-making system for political organizations"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.40.0",
+    "pyyaml>=6.0",
+    "click>=8.0",
+    "pydantic-settings>=2.12.0",
+    "ftfy>=6.3.1",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "kungfu",
+    "openai>=2.14.0",
+    "combinators-py",
+]
+
+[project.optional-dependencies]
+# Vector search with embeddings (semantic search)
+# Uses in-memory numpy store, no external DB needed
+vector = [
+    "sentence-transformers>=3.0.0",
+]
+
+[project.scripts]
+committee = "source.cli.main:app"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.10",
+]
+
+[tool.uv.sources]
+kungfu = { git = "https://github.com/timoniq/kungfu.git" }
+combinators-py = { git = "https://github.com/prostomarkeloff/combinators.py.git" }
