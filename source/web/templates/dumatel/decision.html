@@ -1,0 +1,77 @@
+{% extends "base.html" %} {% block title %}{{ case_title }} — Думатель{% endblock %} {% block
+content %}
+<a href="/dumatel" class="back-link">все решения</a>
+
+<header class="decision-header">
+  <div class="decision-org">{{ org_name }}</div>
+  <h1 class="decision-title">{{ case_title }}</h1>
+  <div class="decision-meta">
+    <div class="meta-item">
+      <span class="meta-label">версий:</span>
+      <span>{{ versions_count }}</span>
+    </div>
+  </div>
+</header>
+
+{% if decisions|length > 1 %}
+<div class="model-selector">
+  {% for d in decisions %}
+  <button
+    class="model-tab{% if loop.first and not d.disabled %} active{% endif %}{% if d.disabled %} disabled{% endif %}"
+    data-model="{{ d.model_slug }}"
+    {%
+    if
+    not
+    d.disabled
+    %}onclick="switchModel('{{ d.model_slug }}')"
+    {%
+    endif
+    %}
+    {%
+    if
+    d.disabled
+    %}disabled
+    title="Решение недоступно"
+    {%
+    endif
+    %}
+  >
+    <span class="model-rank">#{{ loop.index }}</span>
+    <span class="model-name">{{ d.model_id }}</span>
+    <span class="model-date">{{ d.date }}</span>
+  </button>
+  {% endfor %}
+</div>
+{% endif %} {% for d in decisions %}
+<div
+  id="panel-{{ d.model_slug }}"
+  class="decision-panel{% if loop.first and not d.disabled %} active{% endif %}"
+>
+  {% if d.disabled %}
+  <div style="text-align: center; padding: var(--space-16); color: var(--sky-november)">
+    <div style="font-size: var(--text-3xl); margin-bottom: var(--space-4); opacity: 0.5">◼</div>
+    <div>решение этой модели недоступно для просмотра</div>
+  </div>
+  {% else %} {{ d.content|safe }} {% endif %}
+</div>
+{% endfor %} {% endblock %} {% block scripts %}
+<script>
+  function switchModel(modelId) {
+    document.querySelectorAll(".model-tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.model === modelId);
+    });
+    document.querySelectorAll(".decision-panel").forEach((panel) => {
+      panel.classList.toggle("active", panel.id === "panel-" + modelId);
+    });
+    history.replaceState(null, "", "#" + modelId);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      const tab = document.querySelector('.model-tab[data-model="' + hash + '"]');
+      if (tab && !tab.disabled) switchModel(hash);
+    }
+  });
+</script>
+{% endblock %}

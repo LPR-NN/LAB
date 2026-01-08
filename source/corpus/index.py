@@ -85,10 +85,9 @@ class CorpusIndex:
         else:
             self._init_hybrid()
 
-        # Add initial documents
+        # Add initial documents in batch for efficiency
         if self.documents:
-            for doc in self.documents:
-                self.add_document(doc)
+            self._add_documents_batch(self.documents)
 
     def _init_tfidf(self) -> None:
         """Initialize TF-IDF index."""
@@ -121,6 +120,29 @@ class CorpusIndex:
             cache_dir=self.cache_dir,
             use_rrf=self.use_rrf,
         )
+
+    def _add_documents_batch(self, documents: list[CorpusDocument]) -> None:
+        """Add multiple documents efficiently using batch operations."""
+        if not documents:
+            return
+
+        # Store in lookup dicts
+        for doc in documents:
+            self._documents[doc.doc_id] = doc
+            self._by_citation[doc.citation_key] = doc
+            if doc.doc_type not in self._by_type:
+                self._by_type[doc.doc_type] = []
+            self._by_type[doc.doc_type].append(doc)
+
+        # Add to appropriate index in batch
+        if self._tfidf_index is not None:
+            for doc in documents:
+                self._tfidf_index.add_document(doc)
+            self._tfidf_index._rebuild_idf()
+        elif self._vector_index is not None:
+            self._vector_index.add_documents(documents)
+        elif self._hybrid_index is not None:
+            self._hybrid_index.add_documents(documents)
 
     def add_document(self, document: CorpusDocument) -> None:
         """Add a document to the index."""

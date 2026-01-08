@@ -50,6 +50,7 @@ class VectorIndex:
     _chunks: list[Chunk] = field(default_factory=list)
     _embeddings: NDArray[np.float32] | None = field(default=None, repr=False)
     _chunk_id_to_idx: dict[str, int] = field(default_factory=dict)
+    _cache_loaded: bool = field(default=False, repr=False)
 
     def _get_cache_path(self) -> Path | None:
         """Get path for embedding cache file."""
@@ -64,28 +65,41 @@ class VectorIndex:
 
     def _load_cache(self) -> bool:
         """Try to load embeddings from cache. Returns True if successful."""
+        import logging
+
+        logger = logging.getLogger(__name__)
         cache_path = self._get_cache_path()
         if not cache_path or not cache_path.exists():
+            logger.info(f"No embedding cache found at {cache_path}")
             return False
 
         try:
+            logger.info(f"Loading embeddings from cache: {cache_path}")
             with open(cache_path, "rb") as f:
                 cached: dict[str, Any] = pickle.load(f)
 
             # Verify cache is for same model
             if cached.get("model") != self.embedding_provider.model_name:
+                logger.warning(
+                    f"Cache model mismatch: {cached.get('model')} != {self.embedding_provider.model_name}"
+                )
                 return False
 
             self._embeddings = cached["embeddings"]
             self._chunks = cached["chunks"]
             self._chunk_id_to_idx = {c.chunk_id: i for i, c in enumerate(self._chunks)}
 
+            logger.info(f"Loaded {len(self._chunks)} chunks from cache")
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load embedding cache: {e}")
             return False
 
     def _save_cache(self) -> None:
         """Save embeddings to cache."""
+        import logging
+
+        logger = logging.getLogger(__name__)
         cache_path = self._get_cache_path()
         if not cache_path:
             return
@@ -100,6 +114,10 @@ class VectorIndex:
 
         with open(cache_path, "wb") as f:
             pickle.dump(cached, f)
+
+        logger.info(
+            f"Saved {len(self._chunks)} chunk embeddings to cache: {cache_path}"
+        )
 
     def add_document(self, document: CorpusDocument) -> int:
         """
@@ -150,6 +168,7 @@ class VectorIndex:
         Add multiple documents to the index.
 
         Batches embedding computation for efficiency.
+        Loads from cache if available.
 
         Args:
             documents: List of documents to add
@@ -157,6 +176,15 @@ class VectorIndex:
         Returns:
             Total number of chunks created
         """
+        # Try to load from cache on first call
+        if not self._cache_loaded and self.cache_dir:
+            self._cache_loaded = True
+            if self._load_cache():
+                # Cache loaded - restore documents dict
+                for doc in documents:
+                    self._documents[doc.doc_id] = doc
+                return len(self._chunks)
+
         # Chunk all documents first
         all_chunks: list[Chunk] = []
         for doc in documents:

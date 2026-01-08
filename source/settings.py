@@ -1,7 +1,8 @@
+import json
 from typing import Literal
 
 from kungfu import cache
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ProviderType = Literal["openai", "anthropic", "openrouter", "lmstudio"]
@@ -19,8 +20,21 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
 
-    auth_username: str = Field(init=False, alias="AUTH_USERNAME")
-    auth_password: str = Field(init=False, alias="AUTH_PASSWORD")
+    # Multiple users: JSON dict {"user1": "pass1", "user2": "pass2"}
+    auth_users: dict[str, str] = Field(default_factory=dict, alias="AUTH_USERS")
+
+    @field_validator("auth_users", mode="before")
+    @classmethod
+    def parse_auth_users(cls, v: str | dict[str, str] | None) -> dict[str, str]:
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, str):
+            if not v.strip():
+                return {}
+            return json.loads(v)
+        return {}
 
     # Search limits
     max_search_calls: int = Field(
@@ -58,9 +72,21 @@ class Settings(BaseSettings):
         description="Weight for vector similarity in hybrid mode (0-1)",
     )
     vector_cache_dir: str | None = Field(
-        default=None,
+        default=".cache/embeddings",
         alias="VECTOR_CACHE_DIR",
-        description="Directory for embedding cache (pickle)",
+        description="Directory for embedding cache (pickle). Set to empty string to disable.",
+    )
+
+    # Chat settings
+    chat_daily_limit: int = Field(
+        default=5,
+        alias="CHAT_DAILY_LIMIT",
+        description="Maximum chat questions per user per day",
+    )
+    chat_max_question_length: int = Field(
+        default=2000,
+        alias="CHAT_MAX_QUESTION_LENGTH",
+        description="Maximum length of chat question in characters",
     )
 
     def get_api_key(self, provider: ProviderType) -> str | None:

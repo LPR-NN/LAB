@@ -1,0 +1,49 @@
+{% extends "base.html" %} {% block title %}ЛПР Лаб — политтехнологии нового поколения{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1 class="hero-title">лпр лаб</h1>
+  <p class="hero-subtitle">
+    инструменты для тех кто принимает решения — когда документов много а времени мало
+  </p>
+</section>
+
+<section class="section">
+  <h2 class="section-title">проекты</h2>
+
+  <div class="projects-grid">
+    <a href="/dumatel" class="project-card">
+      <div class="project-year">2025</div>
+      <div class="project-name">думатель</div>
+      <div class="project-desc">
+        ии-арбитр для разбора сложных дел. анализирует устав, прецеденты, этический кодекс. выносит
+        мотивированные решения со ссылками на нормы
+      </div>
+      <div class="project-tags">rag / llm / legal reasoning</div>
+      <div class="project-status active">работает</div>
+    </a>
+
+    <a href="/putevoditel" class="project-card">
+      <div class="project-year">2026</div>
+      <div class="project-name">путеводитель</div>
+      <div class="project-desc">
+        поиск по документам партии в формате чата. задаёшь вопрос — получаешь ответ с цитатами. без
+        погружения в сотни страниц
+      </div>
+      <div class="project-tags">chat / hybrid search / citations</div>
+      <div class="project-status soon">скоро</div>
+    </a>
+  </div>
+</section>
+
+<section class="section">
+  <h2 class="section-title">о проекте</h2>
+  <div style="max-width: 600px">
+    <p>
+      лпр лаб — исследовательская инициатива по применению языковых моделей в партийном управлении
+    </p>
+    <p class="text-secondary text-sm mt-4">
+      демонстрация возможностей, не официальный орган партии
+    </p>
+  </div>
+</section>
+{% endblock %}

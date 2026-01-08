@@ -314,16 +314,9 @@ python main.py -p openai -m gpt-5-nano-2025-08-07 redteam requests/appeal-genera
 
 ---
 
-### 7. Экспорт и сервер
+### 7. Cервер
 
 ```bash
-# Экспорт одного решения в HTML
-python main.py export audit_logs/abc123.json
-
-# Экспорт всех решений (сгруппированы по делу)
-python main.py export --all
-python main.py export --all -d public/decisions/
-
 # Запуск веб-сервера
 python main.py serve -p 8080
 python main.py serve -p 8080 --reload  # Dev mode с auto-reload
@@ -367,9 +360,6 @@ python main.py -p openai -m gpt-5-nano-2025-08-07 -s hybrid decide requests/appe
 python main.py -p openai -m gpt-5-nano-2025-08-07 decide requests/appeal-generalov.json -o result-nano.json
 python main.py -p openai -m gpt-5-mini-2025-08-07 decide requests/appeal-generalov.json -o result-mini.json
 python main.py -p anthropic -m claude-sonnet-4-20250514 decide requests/appeal-generalov.json -o result-sonnet.json
-
-# Экспорт всех результатов
-python main.py export --all
 ```
 
 

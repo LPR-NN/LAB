@@ -1,0 +1,45 @@
+{% extends "base.html" %} {% block title %}Думатель — ИИ-арбитр{% endblock %} {% block content %}
+<section class="hero" style="padding-bottom: var(--space-12)">
+  <h1 class="hero-title">думатель</h1>
+  <p class="hero-subtitle">
+    ии-арбитр для разбора спорных ситуаций. читает устав, находит прецеденты, строит аргументацию
+  </p>
+</section>
+
+<section class="section">
+  <h2 class="section-title">рассмотренные дела</h2>
+
+  {% if cases %}
+  <ul class="cases-list">
+    {% for case in cases %}
+    <li class="case-item">
+      <a href="/dumatel/{{ case.slug }}">
+        <div class="case-title">{{ case.title }}</div>
+        <div class="case-summary">{{ case.summary }}</div>
+        <div class="case-meta">
+          <span class="case-date">{{ case.date }}</span>
+          <span class="case-models">{{ case.models_count }} {{ case.models_label }}</span>
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-secondary">нет рассмотренных дел</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <h2 class="section-title">как это работает</h2>
+  <div style="max-width: 600px">
+    <p>
+      агент получает запрос, ищет релевантные нормы через гибридный поиск (vector + bm25),
+      анализирует прецеденты и выносит решение в структурированном формате
+    </p>
+    <p class="text-secondary text-sm mt-4">
+      каждое решение содержит: установленные факты, применимые нормы, цепочку рассуждений, цитаты,
+      неопределённости и рекомендуемые действия
+    </p>
+  </div>
+</section>
+{% endblock %}

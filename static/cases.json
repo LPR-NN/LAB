@@ -1,0 +1,24 @@
+{
+  "site_title": "ЛПР Лаб",
+  "org_name": "ЛПР Лаб",
+  "chat_enabled": false,
+  "model_ranking": [
+    "gpt-5.2-2025-12-11",
+    "gpt-5-mini-2025-08-07",
+    "gpt-5-nano-2025-08-07",
+    "qwen/qwen3-30b-a3b-2507"
+  ],
+  "disabled_models": ["gpt-5-nano-2025-08-07"],
+  "cases": {
+    "generalov": {
+      "title": "NKT-GNRLV",
+      "description": "Апелляция на решение ФК об исключении Н. Генералова"
+    }
+  },
+  "chat_models": [
+    { "provider": "openai", "model": "gpt-5-nano-2025-08-07", "label": "GPT-5 Nano" },
+    { "provider": "openai", "model": "gpt-5-mini-2025-08-07", "label": "GPT-5 Mini" }
+  ],
+  "chat_daily_limit": 5,
+  "chat_max_question_length": 2000
+}

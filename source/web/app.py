@@ -1,18 +1,52 @@
 """FastAPI application for serving static decision files with auth."""
 
 import json
+import logging
 import re
+import sys
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from source.settings import ProviderType
 from source.web.auth import verify_credentials
+from source.web.chat import (
+    ChatConfig,
+    get_chat_service,
+    get_rate_limiter,
+    preload_corpus,
+    render_chat_demo_page,
+    render_chat_page,
+)
+from source.web.pages import PageRenderer
 from source.web.viewer import render_document_viewer
+
+
+def _configure_logging() -> None:
+    """Configure logging for the application."""
+    # Configure root logger
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stderr,
+        force=True,  # Override any existing configuration
+    )
+    # Suppress noisy loggers
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_back_url(referer: str | None, default: str = "/") -> str:
@@ -59,6 +93,23 @@ def _is_valid_package_id(package_id: str) -> bool:
     return bool(_UUID4_PATTERN.match(package_id))
 
 
+def _is_safe_path(base_path: Path, target_path: Path) -> bool:
+    """
+    Check if target_path is safely within base_path.
+
+    Resolves symlinks and prevents path traversal attacks.
+    """
+    try:
+        # Resolve both paths to absolute paths, following symlinks
+        base_resolved = base_path.resolve()
+        target_resolved = target_path.resolve()
+
+        # Check if target is within base
+        return target_resolved.is_relative_to(base_resolved)
+    except (OSError, ValueError):
+        return False
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses."""
 
@@ -96,9 +147,29 @@ def _load_disabled_models(public_path: Path) -> set[str]:
         return set()
 
 
+def _is_chat_enabled(public_path: Path) -> bool:
+    """Check if chat is enabled in cases.json."""
+    config_path = public_path / "cases.json"
+    if not config_path.exists():
+        return False
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        return data.get("chat_enabled", False)
+    except Exception:
+        return False
+
+
 def _is_model_disabled(model_id: str, disabled_models: set[str]) -> bool:
     """Check if a model is disabled."""
     return model_id in disabled_models
+
+
+class ChatRequest(BaseModel):
+    """Request body for chat API."""
+
+    question: str = Field(..., min_length=1, max_length=5000)
+    provider: Literal["openai", "anthropic", "openrouter", "lmstudio"]
+    model: str = Field(..., min_length=1, max_length=100)
 
 
 def create_app(
@@ -107,17 +178,30 @@ def create_app(
     data_path: Path | None = None,
 ) -> FastAPI:
     """Create FastAPI app that serves static files with Basic Auth."""
+    # Configure logging first
+    _configure_logging()
+
     if public_path is None:
-        public_path = Path("public")
+        public_path = Path("static")
     if assets_path is None:
         assets_path = Path("assets")
     if data_path is None:
         data_path = Path("data")
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        """Preload corpus and embeddings at startup."""
+        logger.info("Starting application, preloading corpus...")
+        preload_corpus(data_path)
+        logger.info("Corpus loaded, application ready")
+        yield
+        logger.info("Application shutting down")
+
     app = FastAPI(
         title="Committee Decisions",
         description="Static file server with Basic Auth",
         version="0.1.0",
+        lifespan=lifespan,
         # Hide docs in production
         docs_url=None,
         redoc_url=None,
@@ -127,20 +211,49 @@ def create_app(
     # Add security headers to all responses
     app.add_middleware(SecurityHeadersMiddleware)
 
+    # Initialize page renderer
+    audit_path = Path("audit_logs")
+    page_renderer = PageRenderer(static_path=public_path, audit_path=audit_path)
+
     @app.get("/health")
     async def health() -> dict[str, str]:
         """Health check endpoint (no auth)."""
         return {"status": "ok"}
 
     @app.get("/", response_class=HTMLResponse)
-    async def index(
+    async def home_page(
         username: Annotated[str, Depends(verify_credentials)],
-    ) -> FileResponse:
-        """Serve index.html."""
-        index_file = public_path / "index.html"
-        if not index_file.exists():
-            raise HTTPException(status_code=404, detail="index.html not found")
-        return FileResponse(index_file, media_type="text/html")
+    ) -> HTMLResponse:
+        """Render home page."""
+        html_content = page_renderer.render_home()
+        return HTMLResponse(content=html_content)
+
+    @app.get("/dumatel", response_class=HTMLResponse)
+    async def dumatel_index(
+        username: Annotated[str, Depends(verify_credentials)],
+    ) -> HTMLResponse:
+        """Render Думатель index page."""
+        html_content = page_renderer.render_dumatel_index()
+        return HTMLResponse(content=html_content)
+
+    @app.get("/dumatel/{case_slug}", response_class=HTMLResponse)
+    async def dumatel_decision(
+        case_slug: str,
+        username: Annotated[str, Depends(verify_credentials)],
+    ) -> HTMLResponse:
+        """Render decision page."""
+        html_content = page_renderer.render_decision(case_slug)
+        if html_content is None:
+            raise HTTPException(status_code=404, detail="Decision not found")
+        return HTMLResponse(content=html_content)
+
+    @app.get("/putevoditel", response_class=HTMLResponse)
+    async def putevoditel_page(
+        username: Annotated[str, Depends(verify_credentials)],
+    ) -> HTMLResponse:
+        """Render Путеводитель demo page."""
+        html_content = page_renderer.render_putevoditel()
+        return HTMLResponse(content=html_content)
 
     @app.get("/attachments/{path:path}", response_class=HTMLResponse)
     async def view_attachment(
@@ -151,10 +264,12 @@ def create_app(
         """View attachment files (assets/) with formatted display."""
         path = unquote(path)
 
-        if ".." in path or path.startswith("/"):
+        file_path = assets_path / path
+
+        # Security: verify path is within allowed directory
+        if not _is_safe_path(assets_path, file_path):
             raise HTTPException(status_code=400, detail="Invalid path")
 
-        file_path = assets_path / path
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Attachment not found")
 
@@ -258,10 +373,12 @@ def create_app(
         """View corpus documents (data/) with formatted display."""
         path = unquote(path)
 
-        if ".." in path or path.startswith("/"):
+        file_path = data_path / path
+
+        # Security: verify path is within allowed directory
+        if not _is_safe_path(data_path, file_path):
             raise HTTPException(status_code=400, detail="Invalid path")
 
-        file_path = data_path / path
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -288,10 +405,12 @@ def create_app(
         """Download raw attachment file."""
         path = unquote(path)
 
-        if ".." in path or path.startswith("/"):
+        file_path = assets_path / path
+
+        # Security: verify path is within allowed directory
+        if not _is_safe_path(assets_path, file_path):
             raise HTTPException(status_code=400, detail="Invalid path")
 
-        file_path = assets_path / path
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Attachment not found")
 
@@ -318,10 +437,12 @@ def create_app(
         """Download raw corpus document."""
         path = unquote(path)
 
-        if ".." in path or path.startswith("/"):
+        file_path = data_path / path
+
+        # Security: verify path is within allowed directory
+        if not _is_safe_path(data_path, file_path):
             raise HTTPException(status_code=400, detail="Invalid path")
 
-        file_path = data_path / path
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -375,7 +496,10 @@ def create_app(
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
+            logger.exception("Error loading decision package_id=%s", package_id)
+            raise HTTPException(
+                status_code=500, detail="Ошибка при загрузке решения"
+            ) from e
 
     @app.get("/api/decisions")
     async def list_decisions(
@@ -414,18 +538,210 @@ def create_app(
 
         return JSONResponse(content={"decisions": decisions})
 
+    # Load chat config
+    chat_config = ChatConfig.load(public_path / "cases.json")
+
+    @app.get("/chat", response_class=HTMLResponse)
+    async def chat_page(
+        username: Annotated[str, Depends(verify_credentials)],
+    ) -> HTMLResponse:
+        """Serve chat page or demo page if chat is disabled."""
+        # Load org_name from config
+        config_path = public_path / "cases.json"
+        org_name = "LLM инициатива"
+        if config_path.exists():
+            try:
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+                org_name = data.get("org_name", org_name)
+            except Exception:
+                pass
+
+        # Check if chat is enabled
+        if not _is_chat_enabled(public_path):
+            html = render_chat_demo_page(org_name)
+            return HTMLResponse(content=html)
+
+        rate_limiter = get_rate_limiter(chat_config.daily_limit)
+        remaining = rate_limiter.get_remaining(username)
+
+        html = render_chat_page(chat_config, remaining, org_name)
+        return HTMLResponse(content=html)
+
+    @app.get("/api/chat/limit")
+    async def get_chat_limit(
+        username: Annotated[str, Depends(verify_credentials)],
+    ) -> JSONResponse:
+        """Get remaining chat limit for user."""
+        if not _is_chat_enabled(public_path):
+            raise HTTPException(status_code=403, detail="Чат отключён")
+
+        rate_limiter = get_rate_limiter(chat_config.daily_limit)
+        remaining = rate_limiter.get_remaining(username)
+        return JSONResponse(
+            content={
+                "remaining": remaining,
+                "total": chat_config.daily_limit,
+            }
+        )
+
+    @app.post("/api/chat")
+    async def chat(
+        request: ChatRequest,
+        username: Annotated[str, Depends(verify_credentials)],
+    ) -> JSONResponse:
+        """
+        Chat with AI arbiter using RAG.
+
+        Rate limited to daily_limit requests per user per day.
+        """
+        if not _is_chat_enabled(public_path):
+            raise HTTPException(status_code=403, detail="Чат отключён")
+
+        chat_service = get_chat_service(data_path, chat_config)
+
+        # Validate request (includes rate limit check)
+        error = chat_service.validate_request(
+            question=request.question,
+            provider=request.provider,
+            model=request.model,
+            username=username,
+        )
+        if error:
+            # Return 429 for rate limit, 400 for other validation errors
+            status_code = 429 if "лимит" in error.lower() else 400
+            raise HTTPException(status_code=status_code, detail=error)
+
+        # Process chat request
+        try:
+            provider_type: ProviderType = request.provider
+            response = await chat_service.answer(
+                question=request.question,
+                provider_type=provider_type,
+                model=request.model,
+                username=username,
+            )
+            return JSONResponse(
+                content={
+                    "answer": response.answer,
+                    "sources": response.sources,
+                    "remaining": response.remaining,
+                }
+            )
+        except Exception as e:
+            logger.exception("Chat error for user=%s", username)
+            raise HTTPException(
+                status_code=500, detail="Ошибка при обработке запроса"
+            ) from e
+
+    @app.post("/api/chat/stream")
+    async def chat_stream(
+        request: ChatRequest,
+        username: Annotated[str, Depends(verify_credentials)],
+    ) -> EventSourceResponse:
+        """
+        Chat with AI arbiter using RAG with streaming response.
+
+        Returns Server-Sent Events stream.
+        """
+        if not _is_chat_enabled(public_path):
+            raise HTTPException(status_code=403, detail="Чат отключён")
+
+        chat_service = get_chat_service(data_path, chat_config)
+
+        # Validate request (includes rate limit check)
+        error = chat_service.validate_request(
+            question=request.question,
+            provider=request.provider,
+            model=request.model,
+            username=username,
+        )
+        if error:
+            status_code = 429 if "лимит" in error.lower() else 400
+            raise HTTPException(status_code=status_code, detail=error)
+
+        async def event_generator() -> AsyncGenerator[str, None]:
+            provider_type: ProviderType = request.provider
+            async for chunk in chat_service.answer_stream(
+                question=request.question,
+                provider_type=provider_type,
+                model=request.model,
+                username=username,
+            ):
+                yield chunk
+
+        return EventSourceResponse(event_generator())
+
+    # Poll data storage with rate limiting
+    poll_file = public_path.parent / "poll_responses.json"
+    _poll_rate_limit: dict[str, float] = {}  # IP -> last request timestamp
+    _POLL_RATE_LIMIT_SECONDS = 60  # One poll per minute per IP
+
+    class PollData(BaseModel):
+        """Poll response data."""
+
+        need: bool | None = None
+        pay: bool | None = None
+
+    @app.post("/api/poll")
+    async def save_poll(data: PollData, request: Request) -> JSONResponse:
+        """Save poll response to disk with rate limiting."""
+        import time
+        from datetime import datetime
+
+        # Rate limit by IP
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        last_request = _poll_rate_limit.get(client_ip, 0)
+        if now - last_request < _POLL_RATE_LIMIT_SECONDS:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Try again later.",
+                headers={"Retry-After": str(_POLL_RATE_LIMIT_SECONDS)},
+            )
+        _poll_rate_limit[client_ip] = now
+
+        response = {
+            "need": data.need,
+            "pay": data.pay,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Load existing responses
+        responses: list[dict] = []
+        if poll_file.exists():
+            try:
+                responses = json.loads(poll_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                responses = []
+
+        # Limit max responses to prevent disk exhaustion
+        if len(responses) >= 10000:
+            raise HTTPException(status_code=503, detail="Poll storage full")
+
+        # Append new response
+        responses.append(response)
+
+        # Save back
+        poll_file.write_text(
+            json.dumps(responses, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        return JSONResponse({"status": "ok"})
+
     @app.get("/{path:path}")
     async def serve_static(
         path: str,
         username: Annotated[str, Depends(verify_credentials)],
     ) -> FileResponse:
-        """Serve static files from public directory."""
-        if ".." in path or path.startswith("/"):
-            raise HTTPException(status_code=400, detail="Invalid path")
-
+        """Serve static files from static directory."""
         file_path = public_path / path
         if file_path.is_dir():
             file_path = file_path / "index.html"
+
+        # Security: verify path is within allowed directory
+        if not _is_safe_path(public_path, file_path):
+            raise HTTPException(status_code=400, detail="Invalid path")
 
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found")

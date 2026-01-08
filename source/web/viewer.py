@@ -332,11 +332,6 @@ body {
 """
 
 
-def _escape_html(text: str) -> str:
-    """Escape HTML special characters."""
-    return html.escape(text)
-
-
 def _make_anchor_id(text: str) -> str:
     """Create a URL-safe anchor ID from text."""
     # Replace common patterns
@@ -348,36 +343,6 @@ def _make_anchor_id(text: str) -> str:
     text = re.sub(r"-+", "-", text)  # collapse multiple dashes
     text = text.strip("-")
     return text or "section"
-
-
-def _process_numbered_sections(html_content: str) -> str:
-    """
-    Add anchors to numbered sections like п. 2.3.2.2 or 2.3.2.
-
-    Wraps sections in divs with IDs for linking.
-    """
-    # Pattern for numbered sections at start of paragraph or line
-    # Matches: "2.3.2.2" or "п. 2.3.2.2" or "п.2.3.2"
-    pattern = r"(<p>|^|\n)((?:[пП]\.\s*)?(\d+(?:\.\d+)+))"
-
-    def replace_section(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        full_match = match.group(2)
-        number = match.group(3)
-        anchor_id = f"p-{number.replace('.', '-')}"
-        return f'{prefix}<span id="{anchor_id}" class="section-anchor numbered-section"><span class="section-number">{_escape_html(full_match)}</span>'
-
-    # Process and close spans properly
-    result = re.sub(pattern, replace_section, html_content)
-
-    # Close unclosed spans at paragraph end
-    result = re.sub(
-        r'(<span class="section-anchor numbered-section">.*?)(</p>)',
-        r"\1</span>\2",
-        result,
-    )
-
-    return result
 
 
 def _rich_markdown_to_html(content: str) -> str:
@@ -428,14 +393,25 @@ def _rich_markdown_to_html(content: str) -> str:
     def _process_inline(text: str) -> str:
         """Process inline markdown."""
         # Escape HTML first
-        text = _escape_html(text)
+        text = html.escape(text)
 
-        # Links [text](url)
-        text = re.sub(
-            r"\[([^\]]+)\]\(([^)]+)\)",
-            r'<a href="\2" target="_blank" rel="noopener">\1</a>',
-            text,
-        )
+        # Links [text](url) - with URL validation
+        def safe_link_replace(match: re.Match[str]) -> str:
+            link_text = match.group(1)
+            url = match.group(2)
+            # Validate URL: only allow http, https, mailto, or relative paths
+            url_lower = url.lower().strip()
+            if url_lower.startswith(("javascript:", "data:", "vbscript:")):
+                # Dangerous protocol - render as plain text
+                return f"[{link_text}]"
+            # Check for attribute injection (quotes in URL)
+            if '"' in url or "'" in url:
+                return f"[{link_text}]"
+            # Safe URL - escape it properly
+            safe_url = html.escape(url, quote=True)
+            return f'<a href="{safe_url}" target="_blank" rel="noopener">{link_text}</a>'
+
+        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", safe_link_replace, text)
 
         # Bold **text**
         text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
@@ -657,7 +633,7 @@ def render_document_viewer(
         rendered_content = _rich_markdown_to_html(body_content)
         content_class = "doc-content markdown"
     else:
-        rendered_content = _escape_html(content)
+        rendered_content = html.escape(content)
         content_class = "doc-content preformatted"
 
     doc_type = _get_doc_type_label(file_path)
@@ -667,20 +643,20 @@ def render_document_viewer(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{_escape_html(title)} — Просмотр документа</title>
+    <title>{html.escape(title)} — Просмотр документа</title>
     <style>
 {VIEWER_CSS}
     </style>
 </head>
 <body>
     <div class="container">
-        <a href="{_escape_html(back_url)}" class="back-link">Назад</a>
+        <a href="{html.escape(back_url)}" class="back-link">Назад</a>
 
         <header class="doc-header">
-            <h1 class="doc-title">{_escape_html(title)}</h1>
+            <h1 class="doc-title">{html.escape(title)}</h1>
             <div class="doc-meta">
-                <span class="doc-type">{_escape_html(doc_type)}</span>
-                <span class="doc-path">{_escape_html(file_path)}</span>
+                <span class="doc-type">{html.escape(doc_type)}</span>
+                <span class="doc-path">{html.escape(file_path)}</span>
             </div>
         </header>
 

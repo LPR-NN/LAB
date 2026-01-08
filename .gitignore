@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Cache
+.cache/
+
 docs/
 data/
 requests/
@@ -22,3 +25,6 @@ assets/
 public/
 archive/
 raw/
+DESIGN.md
+poll_responses.json
+funcai/

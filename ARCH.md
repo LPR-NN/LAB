@@ -487,9 +487,9 @@ OPENROUTER_API_KEY=...
 SEARCH_MODE=hybrid              # tfidf, vector, hybrid
 EMBEDDING_MODEL=intfloat/multilingual-e5-base
 
-# Веб-сервер
-AUTH_USERNAME=admin
-AUTH_PASSWORD=committee
+# Веб-сервер (ОБЯЗАТЕЛЬНО задать перед запуском!)
+AUTH_USERNAME=your-username-here
+AUTH_PASSWORD=your-strong-password-here-min-16-chars
 
 # ========== ЭКОНОМИЯ БЮДЖЕТА ==========
 

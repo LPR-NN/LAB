@@ -15,6 +15,7 @@ dependencies = [
     "kungfu",
     "openai>=2.14.0",
     "combinators-py",
+    "sse-starlette>=2.0.0",
 ]
 
 [project.optional-dependencies]

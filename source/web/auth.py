@@ -23,7 +23,9 @@ _MAX_FAILED_ATTEMPTS = 5  # Max failures before lockout
 def _cleanup_old_attempts(ip: str) -> None:
     """Remove attempts older than the rate limit window."""
     now = time.time()
-    _failed_attempts[ip] = [t for t in _failed_attempts[ip] if now - t < _RATE_LIMIT_WINDOW]
+    _failed_attempts[ip] = [
+        t for t in _failed_attempts[ip] if now - t < _RATE_LIMIT_WINDOW
+    ]
 
 
 def _is_rate_limited(ip: str) -> bool:
@@ -59,16 +61,22 @@ def verify_credentials(
 
     settings = get_settings()
 
-    is_username_correct = secrets.compare_digest(
-        credentials.username.encode("utf-8"),
-        settings.auth_username.encode("utf-8"),
-    )
-    is_password_correct = secrets.compare_digest(
-        credentials.password.encode("utf-8"),
-        settings.auth_password.encode("utf-8"),
-    )
+    # Check against all configured users
+    is_valid = False
+    for username, password in settings.auth_users.items():
+        is_username_correct = secrets.compare_digest(
+            credentials.username.encode("utf-8"),
+            username.encode("utf-8"),
+        )
+        is_password_correct = secrets.compare_digest(
+            credentials.password.encode("utf-8"),
+            password.encode("utf-8"),
+        )
+        if is_username_correct and is_password_correct:
+            is_valid = True
+            break
 
-    if not (is_username_correct and is_password_correct):
+    if not is_valid:
         _record_failed_attempt(client_ip)
         logger.warning(
             "Failed login attempt: user=%r ip=%s path=%s attempts=%d",

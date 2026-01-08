@@ -822,114 +822,6 @@ def find_corrupted_cmd(ctx: click.Context):
 
 
 @app.command()
-@click.argument(
-    "package_path",
-    type=click.Path(exists=True, path_type=Path),
-    required=False,
-)
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    help="Output HTML file path (default: same name with .html)",
-)
-@click.option(
-    "--all",
-    "-a",
-    "export_all",
-    is_flag=True,
-    help="Export all packages from audit_logs directory (grouped by case)",
-)
-@click.option(
-    "--output-dir",
-    "-d",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output directory for --all (default: public/)",
-)
-@click.option(
-    "--org-name",
-    type=str,
-    default="LLM инициатива",
-    help="Organization name for the header",
-)
-@click.pass_context
-def export(
-    ctx: click.Context,
-    package_path: Path | None,
-    output: Path | None,
-    export_all: bool,
-    output_dir: Path | None,
-    org_name: str,
-):
-    """Export decision package(s) to HTML web pages.
-
-    Decisions are grouped by case. Each case gets a folder with an index.html
-    that allows switching between model versions.
-
-    Examples:
-
-        # Export a single package
-        python main.py export audit_logs/abc123.json
-
-        # Export to specific file
-        python main.py export audit_logs/abc123.json -o decisions/decision.html
-
-        # Export all packages (grouped by case)
-        python main.py export --all
-
-        # Export all to custom directory
-        python main.py export --all -d website/decisions/
-    """
-    from source.export.html import CaseExporter, HTMLExporter
-
-    if export_all:
-        audit_path = ctx.obj["audit_path"]
-        if output_dir is None:
-            output_dir = Path("public")
-
-        exporter = CaseExporter(org_name=org_name)
-        contexts = exporter.load_packages(audit_path)
-
-        if not contexts:
-            click.echo(f"No valid packages found in {audit_path}")
-            return
-
-        groups = exporter.group_by_case(contexts)
-        click.echo(f"\nFound {len(contexts)} decision(s) in {len(groups)} case(s)")
-
-        created_files = exporter.export_all(audit_path, output_dir)
-
-        click.echo(f"\nExported to {output_dir}/:")
-        for group in groups:
-            models = [c.package.model_id for c in group.packages]
-            click.echo(f"  {group.case_slug}/ ({len(models)} model(s))")
-            for model in models:
-                click.echo(f"    • {model}")
-
-        click.echo(f"\nTotal files: {len(created_files)}")
-    else:
-        if package_path is None:
-            click.echo("Error: Specify a package path or use --all")
-            return
-
-        exporter = HTMLExporter(org_name=org_name)
-
-        try:
-            html = exporter.export_from_files(package_path)
-
-            if output is None:
-                output = package_path.with_suffix(".html")
-
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(html, encoding="utf-8")
-            click.echo(f"Exported: {output}")
-        except Exception as e:
-            click.echo(f"Error: {e}")
-            raise
-
-
-@app.command()
 @click.option(
     "--host",
     "-h",
@@ -993,12 +885,12 @@ def serve(
 
     from source.web.app import create_app
 
-    public_path = Path("public")
+    static_path = Path("static")
     assets_path = Path("assets")
     data_path = Path("data")
 
     click.echo("\n🏛️  Committee Decisions Server")
-    click.echo(f"   Public path: {public_path}")
+    click.echo(f"   Static path: {static_path}")
     click.echo(f"   Assets path: {assets_path}")
     click.echo(f"   Data path: {data_path}")
     click.echo(f"   URL: http://{host}:{port}")
@@ -1006,7 +898,7 @@ def serve(
     click.echo()
 
     app_instance = create_app(
-        public_path=public_path,
+        public_path=static_path,
         assets_path=assets_path,
         data_path=data_path,
     )

@@ -1,11 +1,14 @@
 """Embedding providers abstraction for pluggable embedding models."""
 
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
 import combinators
+
+logger = logging.getLogger(__name__)
 from combinators import lift as L
 from combinators import rate_limit
 from combinators.concurrency import RateLimitPolicy
@@ -132,11 +135,13 @@ class SentenceTransformerProvider(ABCEmbeddingProvider):
                 "Install it with: uv add sentence-transformers"
             ) from e
 
+        logger.info(f"Loading embedding model: {self.name}...")
         self._model = SentenceTransformer(
             self.name,
             device=self.device,
         )
         self._dimension = self._model.get_sentence_embedding_dimension()
+        logger.info(f"Model loaded: dim={self._dimension}, device={self._model.device}")
 
     @property
     def dimension(self) -> int:
@@ -193,12 +198,14 @@ class SentenceTransformerProvider(ABCEmbeddingProvider):
         if self._is_e5_model():
             documents = [f"passage: {doc}" for doc in documents]
 
+        logger.info(f"Embedding {len(documents)} chunks...")
         embeddings = self._model.encode(
             documents,
             normalize_embeddings=self.normalize,
             convert_to_numpy=True,
-            show_progress_bar=len(documents) > 10,
+            show_progress_bar=len(documents) > 50,  # Show progress for large batches
         )
+        logger.info("Embedding complete")
         return embeddings.tolist()
 
 

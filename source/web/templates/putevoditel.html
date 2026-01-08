@@ -1,0 +1,114 @@
+{% extends "base.html" %} {% block title %}Путеводитель — поиск по документам{% endblock %} {% block
+content %}
+<section class="hero" style="padding-bottom: var(--space-12)">
+  <h1 class="hero-title">путеводитель</h1>
+  <p class="hero-subtitle">
+    поиск по документам партии в формате чата. задаёшь вопрос — получаешь ответ с цитатами
+  </p>
+</section>
+
+<section class="section">
+  <h2 class="section-title">пример</h2>
+
+  <div class="chat-demo">
+    <div class="chat-demo-title">демонстрация</div>
+
+    <div class="chat-message user">
+      <div class="chat-bubble">
+        член фк голосовал за собственное исключение. решение действительно?
+      </div>
+    </div>
+
+    <div class="chat-message assistant">
+      <div class="chat-bubble">
+        <p>да, но с оговоркой.</p>
+        <p style="margin-top: var(--space-3)">
+          устав лпр не содержит нормы о самоотводе при голосовании по собственному делу. однако п.
+          4.3 этического кодекса требует избегать конфликта интересов.
+        </p>
+        <p style="margin-top: var(--space-3)">
+          голос «за» собственное исключение парадоксально снимает конфликт интересов, но может
+          свидетельствовать о признании вины.
+        </p>
+        <p
+          style="margin-top: var(--space-3); color: var(--sky-november); font-size: var(--text-sm)"
+        >
+          при оспаривании решения аргумент о нелегитимности голоса будет работать против самого
+          исключённого.
+        </p>
+      </div>
+    </div>
+
+    <div class="chat-disabled-note">чат временно недоступен</div>
+  </div>
+</section>
+
+<section class="section">
+  <h2 class="section-title">опрос</h2>
+
+  <div class="poll-section">
+    <div class="poll-title">помоги определить приоритеты</div>
+
+    <div id="poll-need" class="poll-question" style="margin-bottom: var(--space-6)">
+      <p style="margin-bottom: var(--space-3)">нужен ли тебе такой инструмент?</p>
+      <div class="poll-buttons">
+        <button class="poll-btn" onclick="savePoll('need', true)">да</button>
+        <button class="poll-btn" onclick="savePoll('need', false)">нет</button>
+      </div>
+    </div>
+
+    <div id="poll-pay" class="poll-question">
+      <p style="margin-bottom: var(--space-3)">готов ли поддержать разработку?</p>
+      <div class="poll-buttons">
+        <button class="poll-btn" onclick="savePoll('pay', true)">да</button>
+        <button class="poll-btn" onclick="savePoll('pay', false)">нет</button>
+      </div>
+    </div>
+
+    <div
+      id="poll-thanks"
+      style="display: none; padding: var(--space-6); text-align: center; color: var(--lichen)"
+    >
+      спасибо за ответ
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2 class="section-title">что под капотом</h2>
+  <div style="max-width: 600px">
+    <p>
+      гибридный поиск: векторные эмбеддинги (e5) + bm25. переранжирование результатов. llm для
+      генерации ответа с обязательными ссылками на источники
+    </p>
+    <p class="text-secondary text-sm mt-4">
+      корпус: устав, декларация, решения фк и эк, прецеденты
+    </p>
+  </div>
+</section>
+{% endblock %} {% block scripts %}
+<script>
+  const pollState = { need: null, pay: null };
+
+  function savePoll(key, value) {
+    pollState[key] = value;
+
+    const buttons = document.querySelectorAll("#poll-" + key + " .poll-btn");
+    buttons.forEach((btn, i) => {
+      btn.classList.toggle("selected", (i === 0 && value) || (i === 1 && !value));
+    });
+
+    fetch("/api/poll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(pollState),
+    })
+      .then(() => {
+        if (pollState.need !== null && pollState.pay !== null) {
+          document.getElementById("poll-thanks").style.display = "block";
+        }
+      })
+      .catch(() => {});
+  }
+</script>
+{% endblock %}
