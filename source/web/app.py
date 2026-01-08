@@ -1,5 +1,7 @@
 """FastAPI application for serving static decision files with auth."""
 
+from __future__ import annotations
+
 import json
 import logging
 import re
@@ -7,7 +9,7 @@ import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -16,18 +18,12 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from source.settings import ProviderType
 from source.web.auth import verify_credentials
-from source.web.chat import (
-    ChatConfig,
-    get_chat_service,
-    get_rate_limiter,
-    preload_corpus,
-    render_chat_demo_page,
-    render_chat_page,
-)
 from source.web.pages import PageRenderer
 from source.web.viewer import render_document_viewer
+
+if TYPE_CHECKING:
+    from source.settings import ProviderType
 
 
 def _configure_logging() -> None:
@@ -176,8 +172,18 @@ def create_app(
     public_path: Path | None = None,
     assets_path: Path | None = None,
     data_path: Path | None = None,
+    enable_chat: bool = True,
 ) -> FastAPI:
-    """Create FastAPI app that serves static files with Basic Auth."""
+    """
+    Create FastAPI app that serves static files with Basic Auth.
+
+    Args:
+        public_path: Path to static files (default: static/)
+        assets_path: Path to assets (default: assets/)
+        data_path: Path to data/corpus (default: data/)
+        enable_chat: If False, skip chat module loading and corpus preload.
+            Use this when running without vector dependencies.
+    """
     # Configure logging first
     _configure_logging()
 
@@ -190,10 +196,15 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        """Preload corpus and embeddings at startup."""
-        logger.info("Starting application, preloading corpus...")
-        preload_corpus(data_path)
-        logger.info("Corpus loaded, application ready")
+        """Preload corpus and embeddings at startup (if chat enabled)."""
+        if enable_chat:
+            from source.web.chat import preload_corpus
+
+            logger.info("Starting application, preloading corpus...")
+            preload_corpus(data_path)
+            logger.info("Corpus loaded, application ready")
+        else:
+            logger.info("Starting application (chat disabled, no corpus preload)")
         yield
         logger.info("Application shutting down")
 
@@ -538,14 +549,20 @@ def create_app(
 
         return JSONResponse(content={"decisions": decisions})
 
-    # Load chat config
-    chat_config = ChatConfig.load(public_path / "cases.json")
+    # Load chat config (lazy if chat disabled)
+    chat_config = None
+    if enable_chat:
+        from source.web.chat import ChatConfig
+
+        chat_config = ChatConfig.load(public_path / "cases.json")
 
     @app.get("/chat", response_class=HTMLResponse)
     async def chat_page(
         username: Annotated[str, Depends(verify_credentials)],
     ) -> HTMLResponse:
         """Serve chat page or demo page if chat is disabled."""
+        from source.web.chat import render_chat_demo_page
+
         # Load org_name from config
         config_path = public_path / "cases.json"
         org_name = "LLM инициатива"
@@ -556,11 +573,14 @@ def create_app(
             except Exception:
                 pass
 
-        # Check if chat is enabled
-        if not _is_chat_enabled(public_path):
+        # Check if chat is enabled (both in config and in app)
+        if not enable_chat or not _is_chat_enabled(public_path):
             html = render_chat_demo_page(org_name)
             return HTMLResponse(content=html)
 
+        from source.web.chat import get_rate_limiter, render_chat_page
+
+        assert chat_config is not None
         rate_limiter = get_rate_limiter(chat_config.daily_limit)
         remaining = rate_limiter.get_remaining(username)
 
@@ -572,9 +592,12 @@ def create_app(
         username: Annotated[str, Depends(verify_credentials)],
     ) -> JSONResponse:
         """Get remaining chat limit for user."""
-        if not _is_chat_enabled(public_path):
+        if not enable_chat or not _is_chat_enabled(public_path):
             raise HTTPException(status_code=403, detail="Чат отключён")
 
+        from source.web.chat import get_rate_limiter
+
+        assert chat_config is not None
         rate_limiter = get_rate_limiter(chat_config.daily_limit)
         remaining = rate_limiter.get_remaining(username)
         return JSONResponse(
@@ -594,9 +617,12 @@ def create_app(
 
         Rate limited to daily_limit requests per user per day.
         """
-        if not _is_chat_enabled(public_path):
+        if not enable_chat or not _is_chat_enabled(public_path):
             raise HTTPException(status_code=403, detail="Чат отключён")
 
+        from source.web.chat import get_chat_service
+
+        assert chat_config is not None
         chat_service = get_chat_service(data_path, chat_config)
 
         # Validate request (includes rate limit check)
@@ -643,9 +669,12 @@ def create_app(
 
         Returns Server-Sent Events stream.
         """
-        if not _is_chat_enabled(public_path):
+        if not enable_chat or not _is_chat_enabled(public_path):
             raise HTTPException(status_code=403, detail="Чат отключён")
 
+        from source.web.chat import get_chat_service
+
+        assert chat_config is not None
         chat_service = get_chat_service(data_path, chat_config)
 
         # Validate request (includes rate limit check)

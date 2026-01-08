@@ -847,6 +847,11 @@ def find_corrupted_cmd(ctx: click.Context):
     default="LLM инициатива",
     help="Organization name for the header",
 )
+@click.option(
+    "--no-chat",
+    is_flag=True,
+    help="Disable chat and corpus preload (no vector dependencies needed)",
+)
 @click.pass_context
 def serve(
     ctx: click.Context,
@@ -854,6 +859,7 @@ def serve(
     port: int,
     reload: bool,
     org_name: str,
+    no_chat: bool,
 ):
     """Start web server for viewing decisions.
 
@@ -876,6 +882,9 @@ def serve(
         # Development mode with auto-reload
         AUTH_USERNAME=dev AUTH_PASSWORD=dev python main.py serve --reload
 
+        # Run without chat/vector dependencies
+        AUTH_USERNAME=dev AUTH_PASSWORD=dev python main.py serve --no-chat
+
     For production:
         - Use HTTPS (via reverse proxy like nginx/caddy)
         - Set strong passwords (16+ chars, mixed case, numbers, symbols)
@@ -895,12 +904,15 @@ def serve(
     click.echo(f"   Data path: {data_path}")
     click.echo(f"   URL: http://{host}:{port}")
     click.echo("   Auth: Basic (check env vars COMMITTEE_AUTH_*)")
+    if no_chat:
+        click.echo("   Chat: disabled (--no-chat)")
     click.echo()
 
     app_instance = create_app(
         public_path=static_path,
         assets_path=assets_path,
         data_path=data_path,
+        enable_chat=not no_chat,
     )
 
     uvicorn.run(
